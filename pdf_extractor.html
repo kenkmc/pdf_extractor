@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF & Image Content Extractor (using OpenAI API)</title>
+    <!-- Import Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Preload required libraries for stability -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.js"></script>
+    <style>
+        /* Custom styles for the loader animation */
+        .loader {
+            border-top-color: #3498db;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @-webkit-keyframes spinner {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Tab button styles */
+        .tab-btn {
+            transition: all 0.3s ease;
+        }
+        .tab-btn.active {
+            border-color: #3b82f6;
+            color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        /* Result area styles */
+        #outputContent .result-image-container {
+            position: relative;
+            width: fit-content;
+            margin: 1rem auto;
+        }
+        #outputContent img.result-image {
+            max-width: 80%;
+            margin: 0 auto;
+            display: block;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        /* Identified object card styles */
+        .object-card {
+            position: relative;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            padding-top: 2rem; /* Space for checkbox */
+            text-align: center;
+            background-color: #f9fafb;
+        }
+        .object-card img {
+            border: 1px solid #d1d5db;
+        }
+        .object-checkbox {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            height: 1.25rem;
+            width: 1.25rem;
+        }
+
+        /* Resizable selection box styles */
+        .resizable-selection {
+            position: absolute;
+            border: 2px dashed #3b82f6;
+            background-color: rgba(59, 130, 246, 0.2);
+            cursor: move;
+            z-index: 10;
+            box-sizing: border-box; /* Ensure width/height includes border */
+        }
+        .resizable-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #3b82f6;
+            border: 1px solid white;
+            border-radius: 50%;
+            z-index: 11;
+        }
+        .resizable-handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+        .resizable-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+        .resizable-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+        .resizable-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+        .resizable-handle.n { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .resizable-handle.s { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .resizable-handle.w { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+        .resizable-handle.e { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
+
+        .image-analysis-results {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e7eb;
+        }
+        .selection-toolbar {
+            padding: 0.5rem;
+            background-color: #f3f4f6;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+    <div class="container mx-auto p-4 sm:p-6 md:p-8 max-w-4xl">
+        <div class="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
+            
+            <header class="text-center mb-8">
+                <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">PDF & Image Content Extractor</h1>
+                <p class="text-gray-500 mt-2">Extract text and images from your files using the power of the OpenAI API.</p>
+            </header>
+
+            <!-- API Key and Endpoint Inputs -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-2">OpenAI API Key (<a href="https://openrouter.ai/" target="_blank" class="text-blue-600 hover:underline">Get one from OpenRouter</a>)</label>
+                    <input type="password" id="apiKey" placeholder="Enter your OpenAI API Key here" class="w-full px-4 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+                <div>
+                    <label for="apiBaseUrl" class="block text-sm font-medium text-gray-700 mb-2">API Base URL (Optional)</label>
+                    <input type="text" id="apiBaseUrl" value="https://api.openai.com/v1" class="w-full px-4 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+                <div>
+                    <label for="modelName" class="block text-sm font-medium text-gray-700 mb-2">Model Name</label>
+                    <input type="text" id="modelName" value="openai/gpt-4o" class="w-full px-4 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+                <div>
+                    <!-- Placeholder for alignment -->
+                </div>
+                 <div>
+                    <label for="siteUrl" class="block text-sm font-medium text-gray-700 mb-2">Site URL (Referer) (Optional)</label>
+                    <input type="text" id="siteUrl" placeholder="e.g., https://example.com" class="w-full px-4 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+                <div>
+                    <label for="siteTitle" class="block text-sm font-medium text-gray-700 mb-2">Site Name (X-Title) (Optional)</label>
+                    <input type="text" id="siteTitle" placeholder="e.g., My AI Tool" class="w-full px-4 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                </div>
+            </div>
+            
+            <div class="mt-4 p-4 bg-yellow-50 border border-yellow-300 rounded-lg text-sm text-yellow-800">
+                <h4 class="font-bold">Important: About API Connection</h4>
+                <p class="mt-1">
+                    You may encounter a <strong>CORS error</strong>. This is a normal security feature because OpenAI's API doesn't allow direct calls from a browser.
+                    To solve this, you need to use an API proxy service like <a href="https://openrouter.ai/" target="_blank" class="underline font-medium">OpenRouter</a>.
+                </p>
+                <ul class="list-disc list-inside mt-2 space-y-1">
+                    <li>In the <strong>API Base URL</strong> field, enter the proxy service's URL (e.g., <code>https://openrouter.ai/api/v1</code>).</li>
+                    <li>In the <strong>API Key</strong> field, enter the key you got from the proxy service.</li>
+                     <li>In the <strong>Model Name</strong> field, enter a model supported by the service (e.g., <code>openai/gpt-4o</code>).</li>
+                    <li>If the service requires it (like OpenRouter), fill in the <strong>Site URL</strong> and <strong>Site Name</strong> fields.</li>
+                </ul>
+            </div>
+
+
+            <!-- Tab Selection -->
+            <div class="mt-8 mb-6 border-b border-gray-200">
+                <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+                    <button id="pdfTabBtn" class="tab-btn active whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Extract from PDF</button>
+                    <button id="imageTabBtn" class="tab-btn text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm">Extract from Image</button>
+                </nav>
+            </div>
+
+            <!-- PDF Panel -->
+            <div id="pdfTabPanel">
+                <!-- File Upload -->
+                <div class="mb-6">
+                    <label for="pdfFile" class="block text-sm font-medium text-gray-700 mb-2">1. Upload a PDF File</label>
+                    <div id="pdfDropZone" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            <div class="flex text-sm text-gray-600"><label for="pdfFile" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"><span>Choose a file</span><input id="pdfFile" name="pdfFile" type="file" class="sr-only" accept=".pdf"></label><p class="pl-1">or drag and drop</p></div>
+                            <p class="text-xs text-gray-500" id="pdfFileName">No file chosen</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Page Selection -->
+                <div id="pageSelection" class="hidden mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">2. Select page range to extract</label>
+                    <div class="flex items-center space-x-2"><label for="startPage" class="text-sm text-gray-600">From</label><input type="number" id="startPage" class="w-full px-3 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" min="1"><label for="endPage" class="text-sm text-gray-600">To</label><input type="number" id="endPage" class="w-full px-3 py-2 text-gray-700 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" min="1"></div>
+                    <p class="text-xs text-gray-500 mt-1" id="pageInfo"></p>
+                </div>
+                <!-- PDF Action Button -->
+                <div id="pdfActions" class="text-center mt-6">
+                    <button id="processPdfBtn" class="w-full sm:w-auto bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none" disabled>
+                        Start Extracting Text & Images
+                    </button>
+                </div>
+            </div>
+
+            <!-- Image Panel -->
+            <div id="imageTabPanel" class="hidden">
+                 <div class="mb-6">
+                    <label for="imageFile" class="block text-sm font-medium text-gray-700 mb-2">1. Upload or Paste an Image</label>
+                    <div id="imageDropZone" class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            <div class="flex text-sm text-gray-600"><label for="imageFile" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"><span>Choose a file</span><input id="imageFile" name="imageFile" type="file" class="sr-only" accept="image/*"></label><p class="pl-1">or drag and drop</p></div>
+                            <p class="text-xs text-gray-500" id="imageFileName">No file chosen, or paste an image directly</p>
+                        </div>
+                    </div>
+                    <div id="imagePreviewContainer" class="hidden mt-4 text-center">
+                        <img id="imagePreview" class="max-w-full max-h-64 inline-block rounded-lg shadow-md" />
+                    </div>
+                </div>
+                 <!-- Image Action Buttons -->
+                <div id="imageActions" class="text-center mt-6 flex flex-col sm:flex-row gap-4 justify-center">
+                    <button id="processImageTextBtn" class="w-full sm:w-auto bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none" disabled>
+                        Extract Text (OCR)
+                    </button>
+                    <button id="processImageObjectsBtn" class="w-full sm:w-auto bg-teal-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none" disabled>
+                        Identify & Extract Patterns
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loader and Progress -->
+            <div id="loader" class="hidden text-center my-6">
+                <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mx-auto"></div>
+                <p id="progressText" class="text-gray-600 mt-4">Initializing...</p>
+            </div>
+
+            <!-- Info/Error Box -->
+            <div id="infoBox" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative my-6" role="alert">
+                <strong class="font-bold" id="infoTitle">An error occurred!</strong>
+                <span class="block sm:inline" id="infoMessage"></span>
+            </div>
+
+            <!-- Results Display -->
+            <div id="results" class="hidden my-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Extraction Results</h2>
+                <div id="outputContent" class="prose max-w-none w-full p-4 bg-gray-50 border border-gray-300 rounded-lg min-h-[24rem] overflow-y-auto"></div>
+                <div id="outputActions" class="mt-4 flex flex-col sm:flex-row justify-center items-center gap-3">
+                    <button id="copyBtn" class="w-full sm:w-auto bg-gray-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-transform transform hover:scale-105">
+                        Copy All Text
+                    </button>
+                    <button id="downloadBtn" class="w-full sm:w-auto bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105">
+                        Download as .docx
+                    </button>
+                </div>
+            </div>
+
+        </div>
+        <footer class="text-center mt-6 text-sm text-gray-500">
+            <p>Powered by LLM Technology</p>
+        </footer>
+    </div>
+        
+    <!-- Hidden Canvas for PDF page rendering -->
+    <canvas id="pdfCanvas" class="hidden"></canvas>
+    
+    <script>
+        // Set PDF.js worker path
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+
+        // Common DOM Elements
+        const loader = document.getElementById('loader');
+        const progressText = document.getElementById('progressText');
+        const resultsDiv = document.getElementById('results');
+        const outputContent = document.getElementById('outputContent');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const infoBox = document.getElementById('infoBox');
+        const infoTitle = document.getElementById('infoTitle');
+        const infoMessage = document.getElementById('infoMessage');
+        const apiKeyInput = document.getElementById('apiKey');
+        const apiBaseUrlInput = document.getElementById('apiBaseUrl');
+        const siteUrlInput = document.getElementById('siteUrl');
+        const siteTitleInput = document.getElementById('siteTitle');
+        const modelNameInput = document.getElementById('modelName');
+        const outputActions = document.getElementById('outputActions');
+
+        // Tab related elements
+        const pdfTabBtn = document.getElementById('pdfTabBtn');
+        const imageTabBtn = document.getElementById('imageTabBtn');
+        const pdfTabPanel = document.getElementById('pdfTabPanel');
+        const imageTabPanel = document.getElementById('imageTabPanel');
+        
+        // PDF related elements
+        const pdfFileInput = document.getElementById('pdfFile');
+        const pdfFileNameDisplay = document.getElementById('pdfFileName');
+        const pdfDropZone = document.getElementById('pdfDropZone');
+        const pageSelectionDiv = document.getElementById('pageSelection');
+        const processPdfBtn = document.getElementById('processPdfBtn');
+        
+        // Image related elements
+        const imageFileInput = document.getElementById('imageFile');
+        const imageFileNameDisplay = document.getElementById('imageFileName');
+        const imageDropZone = document.getElementById('imageDropZone');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const imagePreview = document.getElementById('imagePreview');
+        const processImageTextBtn = document.getElementById('processImageTextBtn');
+        const processImageObjectsBtn = document.getElementById('processImageObjectsBtn');
+
+        let currentMode = 'pdf';
+        let selectedPdfFile = null;
+        let pdfDoc = null;
+        let selectedImageDataUrl = null;
+
+        // --- Tab Switching Logic ---
+        function switchTab(mode) {
+            currentMode = mode;
+            resetUI();
+            
+            if (mode === 'pdf') {
+                pdfTabBtn.classList.add('active');
+                imageTabBtn.classList.remove('active');
+                pdfTabPanel.classList.remove('hidden');
+                imageTabPanel.classList.add('hidden');
+                processPdfBtn.disabled = !selectedPdfFile;
+            } else {
+                imageTabBtn.classList.add('active');
+                pdfTabBtn.classList.remove('active');
+                imageTabPanel.classList.remove('hidden');
+                pdfTabPanel.classList.add('hidden');
+                const imageSelected = !!selectedImageDataUrl;
+                processImageTextBtn.disabled = !imageSelected;
+                processImageObjectsBtn.disabled = !imageSelected;
+            }
+        }
+        pdfTabBtn.addEventListener('click', () => switchTab('pdf'));
+        imageTabBtn.addEventListener('click', () => switchTab('image'));
+
+        // --- PDF Handling Logic ---
+        pdfFileInput.addEventListener('change', (e) => handlePdfFile(e.target.files[0]));
+        pdfDropZone.addEventListener('dragover', (e) => { e.preventDefault(); pdfDropZone.classList.add('border-blue-500', 'bg-blue-50'); });
+        pdfDropZone.addEventListener('dragleave', (e) => { e.preventDefault(); pdfDropZone.classList.remove('border-blue-500', 'bg-blue-50'); });
+        pdfDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            pdfDropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                handlePdfFile(files[0]);
+            }
+        });
+
+        async function handlePdfFile(file) {
+            if (!file) return;
+            selectedPdfFile = file;
+            pdfFileNameDisplay.textContent = selectedPdfFile.name;
+            processPdfBtn.disabled = true;
+            const fileReader = new FileReader();
+            fileReader.readAsArrayBuffer(selectedPdfFile);
+            fileReader.onload = async (event) => {
+                try {
+                    const pdfData = new Uint8Array(event.target.result);
+                    pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                    const numPages = pdfDoc.numPages;
+                    document.getElementById('pageInfo').textContent = `The file has ${numPages} pages.`;
+                    document.getElementById('startPage').max = numPages;
+                    document.getElementById('startPage').value = 1;
+                    document.getElementById('endPage').max = numPages;
+                    document.getElementById('endPage').value = numPages;
+                    pageSelectionDiv.classList.remove('hidden');
+                    processPdfBtn.disabled = false;
+                } catch (err) {
+                    showInfo(`Failed to read PDF: ${err.message}`);
+                    pageSelectionDiv.classList.add('hidden');
+                    pdfDoc = null;
+                }
+            };
+        }
+        processPdfBtn.addEventListener('click', () => handleProcessing(processPDF));
+
+        // --- Image Handling Logic ---
+        imageFileInput.addEventListener('change', (e) => handleImageFile(e.target.files[0]));
+        imageDropZone.addEventListener('dragover', (e) => { e.preventDefault(); imageDropZone.classList.add('border-blue-500', 'bg-blue-50'); });
+        imageDropZone.addEventListener('dragleave', (e) => { e.preventDefault(); imageDropZone.classList.remove('border-blue-500', 'bg-blue-50'); });
+        imageDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            imageDropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type.startsWith('image/')) {
+                handleImageFile(files[0]);
+            }
+        });
+
+        window.addEventListener('paste', (e) => {
+            const items = e.clipboardData.items;
+            for (const item of items) {
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const imageFile = item.getAsFile();
+                    switchTab('image');
+                    handleImageFile(imageFile);
+                    break;
+                }
+            }
+        });
+
+        function handleImageFile(file) {
+            if (!file || !file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                selectedImageDataUrl = e.target.result;
+                const img = new Image();
+                img.onload = () => {
+                    imagePreview.src = selectedImageDataUrl;
+                    imagePreview.dataset.width = img.width;
+                    imagePreview.dataset.height = img.height;
+                    imagePreviewContainer.classList.remove('hidden');
+                    imageFileNameDisplay.textContent = file.name || 'Pasted image';
+                    processImageTextBtn.disabled = false;
+                    processImageObjectsBtn.disabled = false;
+                };
+                img.src = selectedImageDataUrl;
+            };
+            reader.readAsDataURL(file);
+        }
+        processImageTextBtn.addEventListener('click', () => handleProcessing(processImageForText));
+        processImageObjectsBtn.addEventListener('click', () => handleProcessing(processImageForObjects));
+        
+        // --- Core Processing Logic ---
+        async function handleProcessing(processFunction) {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                showInfo("Please enter your OpenAI API Key first.");
+                return;
+            }
+            resetUI(true);
+            loader.classList.remove('hidden');
+            document.querySelectorAll('#pdfActions button, #imageActions button').forEach(b => b.disabled = true);
+
+            try {
+                await processFunction();
+            } catch (err) {
+                 showInfo(`An error occurred while processing the file: ${err.message}`);
+                 loader.classList.add('hidden');
+            } finally {
+                if(currentMode === 'pdf') processPdfBtn.disabled = !selectedPdfFile;
+                if(currentMode === 'image') {
+                    processImageTextBtn.disabled = !selectedImageDataUrl;
+                    processImageObjectsBtn.disabled = !selectedImageDataUrl;
+                }
+            }
+        }
+
+        async function processPDF() {
+            if (!selectedPdfFile || !pdfDoc) throw new Error('Please select a valid PDF file.');
+            const startPage = parseInt(document.getElementById('startPage').value, 10);
+            const endPage = parseInt(document.getElementById('endPage').value, 10);
+            if (isNaN(startPage) || isNaN(endPage) || startPage < 1 || endPage > pdfDoc.numPages || startPage > endPage) {
+                throw new Error('Invalid page range selected.');
+            }
+            const pagesToProcess = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
+            outputContent.innerHTML = '';
+            outputActions.classList.remove('hidden');
+
+            for (let i = 0; i < pagesToProcess.length; i++) {
+                const pageNumber = pagesToProcess[i];
+                progressText.textContent = `Processing selected page ${i + 1} of ${pagesToProcess.length} (Page ${pageNumber})...`;
+                const page = await pdfDoc.getPage(pageNumber);
+                
+                const viewport = page.getViewport({ scale: 2.0 });
+                const canvas = document.getElementById('pdfCanvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                const imageDataUrl = canvas.toDataURL('image/jpeg');
+                const textFromPage = await callOpenAIForText(imageDataUrl);
+                
+                progressText.textContent = `Extracting images from page ${pageNumber}...`;
+                const extractedImages = await extractImagesFromPage(page);
+                let imageHtml = '';
+                let imageCounter = 0;
+                for (const imageUrl of extractedImages) {
+                    const imageId = `pdf-img-${pageNumber}-${imageCounter++}`;
+                    imageHtml += `
+                        <div class="result-image-container" id="${imageId}-container">
+                            <img src="${imageUrl}" alt="Image extracted from PDF" class="result-image" id="${imageId}">
+                            <div class="image-controls text-center mt-2">
+                                <button class="select-btn bg-indigo-500 text-white text-xs py-1 px-3 rounded-full hover:bg-indigo-600" data-target-id="${imageId}">
+                                    Select Area to Identify Patterns
+                                </button>
+                            </div>
+                        </div>`;
+                }
+
+                const pageResultDiv = document.createElement('div');
+                pageResultDiv.innerHTML = `
+                    <div class="page-content">${marked.parse(textFromPage)}</div>
+                    ${imageHtml}
+                    <hr class="my-4 border-gray-300"><p class="text-center text-sm text-gray-500">--- Page ${pageNumber} ---</p><hr class="my-4 border-gray-300">
+                `;
+                outputContent.appendChild(pageResultDiv);
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            }
+
+            resultsDiv.classList.remove('hidden');
+            loader.classList.add('hidden');
+        }
+
+        async function processImageForText() {
+            if (!selectedImageDataUrl) throw new Error('Please select or paste an image first.');
+            progressText.textContent = 'Extracting text from image...';
+            const textFromImage = await callOpenAIForText(selectedImageDataUrl);
+            
+            outputActions.classList.remove('hidden');
+            outputContent.innerHTML = `
+                <div class="page-content">${marked.parse(textFromImage)}</div>
+                <div class="result-image-container" id="single-img-container">
+                    <img src="${selectedImageDataUrl}" alt="Processed Image" class="result-image" id="single-img">
+                    <div class="image-controls text-center mt-2">
+                        <button class="select-btn bg-indigo-500 text-white text-sm py-2 px-4 rounded-lg hover:bg-indigo-600" data-target-id="single-img">
+                            Select Area to Identify Patterns
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            resultsDiv.classList.remove('hidden');
+            loader.classList.add('hidden');
+        }
+        
+        async function processImageForObjects() {
+            if (!selectedImageDataUrl) throw new Error('Please select or paste an image first.');
+            progressText.textContent = 'Identifying patterns in the image...';
+            const detectedObjects = await callOpenAIForObjects(selectedImageDataUrl, 0, imagePreview);
+            
+            outputActions.classList.add('hidden');
+            outputContent.innerHTML = ''; 
+
+            if (detectedObjects && detectedObjects.length > 0) {
+                 const grid = document.createElement('div');
+                 grid.className = 'grid grid-cols-2 md:grid-cols-3 gap-4';
+                 
+                 const originalImg = new Image();
+                 originalImg.onload = () => {
+                    detectedObjects.forEach(obj => {
+                        if (!obj.box || obj.box.length !== 4 || obj.box[2] <= 0 || obj.box[3] <= 0) return;
+
+                        const { description, box } = obj;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = box[2];
+                        canvas.height = box[3];
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(originalImg, box[0], box[1], box[2], box[3], 0, 0, box[2], box[3]);
+                        
+                        const card = document.createElement('div');
+                        card.className = 'object-card';
+                        card.innerHTML = `
+                            <img src="${canvas.toDataURL()}" alt="${description}">
+                            <p class="text-sm text-gray-700 mt-2">${description}</p>
+                        `;
+                        grid.appendChild(card);
+                    });
+                    outputContent.appendChild(grid);
+                 };
+                 originalImg.src = selectedImageDataUrl;
+            } else {
+                outputContent.innerHTML = `<p class="text-center text-gray-600">Could not identify distinct patterns in the image.</p>`;
+            }
+
+            resultsDiv.classList.remove('hidden');
+            loader.classList.add('hidden');
+        }
+        
+        // --- Interactive Resizable Selection Box Logic ---
+        let currentSelectionBox = null;
+        let currentImageForSelection = null;
+        let isDragging = false;
+        let isResizing = false;
+        let resizeHandleType = '';
+        let startClientX, startClientY, startBoxLeft, startBoxTop, startBoxWidth, startBoxHeight;
+
+        outputContent.addEventListener('click', (e) => {
+            if (e.target.classList.contains('select-btn')) {
+                const targetId = e.target.dataset.targetId;
+                const imageElement = document.getElementById(targetId);
+                if (imageElement) {
+                    deactivateSelectionMode(); // Deactivate any other active selection
+                    activateSelectionMode(imageElement.parentElement);
+                }
+            } else if (e.target.classList.contains('confirm-selection-btn')) {
+                handleConfirmSelection();
+            } else if (e.target.classList.contains('cancel-selection-btn')) {
+                deactivateSelectionMode();
+            } else if (e.target.classList.contains('delete-selected-btn')) {
+                handleDeleteSelected(e.target.closest('.image-analysis-results'));
+            } else if (e.target.classList.contains('download-selected-btn')) {
+                handleDownloadSelected(e.target.closest('.image-analysis-results'));
+            }
+        });
+
+        outputContent.addEventListener('change', (e) => {
+             if (e.target.classList.contains('object-checkbox')) {
+                const resultsContainer = e.target.closest('.image-analysis-results');
+                if(resultsContainer) updateSelectionToolbar(resultsContainer);
+            }
+        });
+
+
+        function activateSelectionMode(imageContainer) {
+            currentImageForSelection = imageContainer.querySelector('.result-image');
+            
+            const selectBtn = imageContainer.querySelector('.select-btn');
+            if(selectBtn) selectBtn.style.display = 'none';
+
+            const imgRect = currentImageForSelection.getBoundingClientRect();
+            const containerRect = imageContainer.getBoundingClientRect();
+            
+            const initialTop = (currentImageForSelection.offsetTop) + (currentImageForSelection.offsetHeight * 0.25);
+            const initialLeft = (currentImageForSelection.offsetLeft) + (currentImageForSelection.offsetWidth * 0.25);
+            const initialWidth = currentImageForSelection.offsetWidth * 0.5;
+            const initialHeight = currentImageForSelection.offsetHeight * 0.5;
+
+            const box = document.createElement('div');
+            box.className = 'resizable-selection';
+            box.style.top = `${initialTop}px`;
+            box.style.left = `${initialLeft}px`;
+            box.style.width = `${initialWidth}px`;
+            box.style.height = `${initialHeight}px`;
+            
+            const handles = ['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'];
+            handles.forEach(type => {
+                const handle = document.createElement('div');
+                handle.className = `resizable-handle ${type}`;
+                handle.dataset.type = type;
+                box.appendChild(handle);
+                handle.addEventListener('mousedown', handleResizeStart);
+            });
+
+            imageContainer.appendChild(box);
+            currentSelectionBox = box;
+            box.addEventListener('mousedown', handleDragStart);
+
+            const actions = imageContainer.querySelector('.image-controls');
+            actions.innerHTML = `
+                <button class="confirm-selection-btn bg-green-500 text-white text-xs py-1 px-2 rounded-full hover:bg-green-600">Analyze this Area</button>
+                <button class="cancel-selection-btn bg-red-500 text-white text-xs py-1 px-2 rounded-full hover:bg-red-600">Cancel Selection</button>
+            `;
+        }
+
+        function deactivateSelectionMode() {
+            if (currentSelectionBox) {
+                const container = currentSelectionBox.parentElement;
+                if (container) {
+                    const controls = container.querySelector('.image-controls');
+                    const img = container.querySelector('.result-image');
+                    if (controls && img) {
+                        controls.innerHTML = `
+                             <button class="select-btn bg-indigo-500 text-white text-xs py-1 px-3 rounded-full hover:bg-indigo-600" data-target-id="${img.id}">
+                                Select Area to Identify Patterns
+                            </button>
+                        `;
+                    }
+                }
+                currentSelectionBox.remove();
+                currentSelectionBox = null;
+            }
+        }
+
+        function handleDragStart(e) {
+            if (e.target !== currentSelectionBox) return; 
+            e.preventDefault();
+            isDragging = true;
+            startClientX = e.clientX;
+            startClientY = e.clientY;
+            startBoxLeft = currentSelectionBox.offsetLeft;
+            startBoxTop = currentSelectionBox.offsetTop;
+            window.addEventListener('mousemove', handleGlobalMouseMove);
+            window.addEventListener('mouseup', handleGlobalMouseUp);
+        }
+
+        function handleResizeStart(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            isResizing = true;
+            resizeHandleType = e.target.dataset.type;
+            startClientX = e.clientX;
+            startClientY = e.clientY;
+            startBoxLeft = currentSelectionBox.offsetLeft;
+            startBoxTop = currentSelectionBox.offsetTop;
+            startBoxWidth = currentSelectionBox.offsetWidth;
+            startBoxHeight = currentSelectionBox.offsetHeight;
+            window.addEventListener('mousemove', handleGlobalMouseMove);
+            window.addEventListener('mouseup', handleGlobalMouseUp);
+        }
+
+        function handleGlobalMouseMove(e) {
+            e.preventDefault();
+            const parent = currentSelectionBox.parentElement;
+            const img = parent.querySelector('.result-image');
+            const imgRect = img.getBoundingClientRect();
+            const parentRect = parent.getBoundingClientRect();
+
+            const imgLeft = imgRect.left - parentRect.left;
+            const imgTop = imgRect.top - parentRect.top;
+            const imgRight = imgLeft + imgRect.width;
+            const imgBottom = imgTop + imgRect.height;
+            
+            if (isDragging) {
+                const dx = e.clientX - startClientX;
+                const dy = e.clientY - startClientY;
+                let newLeft = startBoxLeft + dx;
+                let newTop = startBoxTop + dy;
+
+                newLeft = Math.max(imgLeft, Math.min(newLeft, imgRight - currentSelectionBox.offsetWidth));
+                newTop = Math.max(imgTop, Math.min(newTop, imgBottom - currentSelectionBox.offsetHeight));
+                
+                currentSelectionBox.style.left = `${newLeft}px`;
+                currentSelectionBox.style.top = `${newTop}px`;
+            } else if (isResizing) {
+                const dx = e.clientX - startClientX;
+                const dy = e.clientY - startClientY;
+                let newLeft = startBoxLeft, newTop = startBoxTop, newWidth = startBoxWidth, newHeight = startBoxHeight;
+
+                if (resizeHandleType.includes('e')) newWidth = Math.min(startBoxWidth + dx, imgRight - startBoxLeft);
+                if (resizeHandleType.includes('w')) { let w = startBoxWidth - dx; newLeft = Math.max(startBoxLeft + dx, imgLeft); newWidth = startBoxLeft + startBoxWidth - newLeft; }
+                if (resizeHandleType.includes('s')) newHeight = Math.min(startBoxHeight + dy, imgBottom - startBoxTop);
+                if (resizeHandleType.includes('n')) { let h = startBoxHeight - dy; newTop = Math.max(startBoxTop + dy, imgTop); newHeight = startBoxTop + startBoxHeight - newTop; }
+                
+                if (newWidth > 10) { currentSelectionBox.style.width = `${newWidth}px`; currentSelectionBox.style.left = `${newLeft}px`; }
+                if (newHeight > 10) { currentSelectionBox.style.height = `${newHeight}px`; currentSelectionBox.style.top = `${newTop}px`; }
+            }
+        }
+
+        function handleGlobalMouseUp(e) {
+            isDragging = false;
+            isResizing = false;
+            window.removeEventListener('mousemove', handleGlobalMouseMove);
+            window.removeEventListener('mouseup', handleGlobalMouseUp);
+        }
+
+        function handleConfirmSelection() {
+            const selectionRect = {
+                left: currentSelectionBox.offsetLeft,
+                top: currentSelectionBox.offsetTop,
+                width: currentSelectionBox.offsetWidth,
+                height: currentSelectionBox.offsetHeight
+            };
+            
+            analyzeSelection(currentImageForSelection, selectionRect);
+            deactivateSelectionMode();
+        }
+        
+        async function analyzeSelection(imageElement, selectionRect) {
+            const container = imageElement.parentElement;
+            
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'text-center text-sm text-gray-600 mt-2';
+            progressDiv.id = 'analysis-progress';
+            container.querySelector('.image-controls').insertAdjacentElement('afterend', progressDiv);
+
+
+            try {
+                const sourceImage = new Image();
+                
+                const analysisPromise = new Promise((resolve, reject) => {
+                    sourceImage.onload = async () => {
+                        try {
+                            const imgRect = imageElement.getBoundingClientRect();
+                            const containerRect = container.getBoundingClientRect();
+                            
+                            const imgDisplayLeft = imgRect.left - containerRect.left;
+                            const imgDisplayTop = imgRect.top - containerRect.top;
+                            
+                            const scaleX = sourceImage.naturalWidth / imageElement.clientWidth;
+                            const scaleY = sourceImage.naturalHeight / imageElement.clientHeight;
+
+                            const selectionLeftOnImage = selectionRect.left - imgDisplayLeft;
+                            const selectionTopOnImage = selectionRect.top - imgDisplayTop;
+                            
+                            const cropX = selectionLeftOnImage * scaleX;
+                            const cropY = selectionTopOnImage * scaleY;
+                            const cropWidth = selectionRect.width * scaleX;
+                            const cropHeight = selectionRect.height * scaleY;
+                            
+                            if (cropX < 0 || cropY < 0 || cropWidth <= 0 || cropHeight <= 0) {
+                                throw new Error("Invalid selection or out of image bounds.");
+                            }
+                            
+                            const canvas = document.createElement('canvas');
+                            canvas.width = cropWidth;
+                            canvas.height = cropHeight;
+                            const ctx = canvas.getContext('2d');
+                            
+                            ctx.drawImage(sourceImage, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+                            
+                            const croppedDataUrl = canvas.toDataURL('image/jpeg');
+                            const mockImageElement = { dataset: { width: cropWidth, height: cropHeight } };
+                            
+                            let resultsContainer = container.querySelector('.image-analysis-results');
+                            if (!resultsContainer) {
+                                resultsContainer = document.createElement('div');
+                                resultsContainer.className = 'image-analysis-results';
+                                container.appendChild(resultsContainer);
+                            }
+                            progressDiv.innerHTML = `<p>Analyzing the selected area:</p><img src="${croppedDataUrl}" style="border: 2px solid #fbbf24; max-width: 150px; margin: 0.5rem auto;">`;
+
+                            const detectedObjects = await callOpenAIForObjects(croppedDataUrl, 0, mockImageElement);
+                            
+                            if (detectedObjects && detectedObjects.length > 0) {
+                                let grid = resultsContainer.querySelector('.grid');
+                                if (!grid) {
+                                    grid = document.createElement('div');
+                                    grid.className = 'grid grid-cols-2 md:grid-cols-4 gap-2 mt-2';
+                                    resultsContainer.appendChild(grid);
+                                }
+                                
+                                detectedObjects.forEach(obj => {
+                                    if (!obj.box || obj.box.length !== 4 || obj.box[2] <= 0 || obj.box[3] <= 0) return;
+                                    const { description, box } = obj;
+                                    const cardCanvas = document.createElement('canvas');
+                                    cardCanvas.width = box[2];
+                                    cardCanvas.height = box[3];
+                                    const cardCtx = cardCanvas.getContext('2d');
+                                    cardCtx.drawImage(canvas, box[0], box[1], box[2], box[3], 0, 0, box[2], box[3]);
+                                    
+                                    const card = document.createElement('div');
+                                    card.className = 'object-card';
+                                    card.innerHTML = `
+                                        <input type="checkbox" class="object-checkbox">
+                                        <img src="${cardCanvas.toDataURL()}" alt="${description}" class="!my-0">
+                                        <p class="text-xs text-gray-600 mt-1">${description}</p>`;
+                                    grid.appendChild(card);
+                                });
+                            } else {
+                                resultsContainer.insertAdjacentHTML('beforeend', '<p class="text-center text-sm text-gray-500 mt-2">No patterns identified in the selected area.</p>');
+                            }
+                            resolve();
+                        } catch (innerErr) {
+                            reject(innerErr);
+                        }
+                    };
+                    
+                    sourceImage.onerror = () => {
+                        reject(new Error("Could not load image for analysis."));
+                    };
+                    
+                    sourceImage.src = imageElement.src;
+                });
+
+                await analysisPromise;
+
+            } catch (err) {
+                showInfo(`Error analyzing selection: ${err.message}`);
+            } finally {
+                progressDiv.remove();
+            }
+        }
+
+
+        async function callOpenAIForText(imageDataUrl, retryCount = 0) {
+            const apiKey = apiKeyInput.value.trim();
+            const baseUrl = apiBaseUrlInput.value.trim() || 'https://api.openai.com/v1';
+            const model = modelNameInput.value.trim() || 'openai/gpt-4o';
+            const siteUrl = siteUrlInput.value.trim();
+            const siteTitle = siteTitleInput.value.trim();
+            const url = `${baseUrl}/chat/completions`;
+
+            const headers = { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+            if (siteUrl) headers['HTTP-Referer'] = siteUrl;
+            if (siteTitle) headers['X-Title'] = siteTitle;
+            
+            const payload = {
+                model: model,
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            { 
+                                type: "text", 
+                                text: "You are an expert document format analyst. Extract all text from this image and do your best to restore the original document's structure and formatting using Markdown syntax. Follow these rules:\n- Use #, ##, ### etc., for headings.\n- Use **bold text** for bold elements.\n- Use *italic text* for italic elements.\n- Use - or * to create bulleted lists.\n- Use 1., 2., 3. to create numbered lists.\n- Preserve original paragraphs and line breaks as much as possible.\n- Do not add any comments or summaries that are not in the original image. Return only the Markdown formatted text."
+                            },
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    "url": imageDataUrl
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens: 4000
+            };
+            
+            try {
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: headers,
+                    body: JSON.stringify(payload) 
+                });
+                if (!response.ok) { 
+                    const errorData = await response.json(); 
+                    throw new Error(`API Error (${response.status}): ${errorData.error?.message || 'Unknown error'}`); 
+                }
+                const result = await response.json();
+                return result.choices?.[0]?.message?.content || "[No text could be extracted from this page or content was filtered]";
+            } catch (err) {
+                 if (retryCount < 3) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    progressText.textContent += ` (API request failed, retrying in ${delay/1000}s...)`;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return callOpenAIForText(imageDataUrl, retryCount + 1);
+                } else { throw new Error(`API request failed: ${err.message}`); }
+            }
+        }
+        
+        async function callOpenAIForObjects(imageDataUrl, retryCount = 0, imageElement) {
+            const apiKey = apiKeyInput.value.trim();
+            const baseUrl = apiBaseUrlInput.value.trim() || 'https://api.openai.com/v1';
+            const model = modelNameInput.value.trim() || 'openai/gpt-4o';
+            const siteUrl = siteUrlInput.value.trim();
+            const siteTitle = siteTitleInput.value.trim();
+            const url = `${baseUrl}/chat/completions`;
+            
+            const originalWidth = imageElement.dataset.width;
+            const originalHeight = imageElement.dataset.height;
+            
+            const headers = { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            };
+            if (siteUrl) headers['HTTP-Referer'] = siteUrl;
+            if (siteTitle) headers['X-Title'] = siteTitle;
+
+            const payload = {
+                model: model,
+                response_format: { "type": "json_object" },
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            { 
+                                type: "text", 
+                                text: `You are an object detection expert. Analyze this image (original size ${originalWidth}x${originalHeight} pixels). Identify all recognizable, meaningful, and distinct objects, patterns, or charts in the image. If the image is a screenshot, individual windows or icons should also be considered objects. For each object found, provide a short English description and its pixel-based bounding box within the original image. You MUST respond with a single JSON object that has one key, "objects", whose value is a JSON array. Do not include any extra text or explanations. The format for each object in the array is as follows:\n{"description": "A short English description of the object", "box": [x, y, width, height]}\nx is the top-left x-coordinate, y is the top-left y-coordinate, width is the width, and height is the height, all in pixels. If no recognizable objects are found, return an empty JSON array [] as the value for "objects".`
+                            },
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    "url": imageDataUrl
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens: 2048
+            };
+
+            try {
+                const response = await fetch(url, { 
+                    method: 'POST', 
+                    headers: headers,
+                    body: JSON.stringify(payload) 
+                });
+                if (!response.ok) { const errorData = await response.json(); throw new Error(`API Error (${response.status}): ${errorData.error?.message || 'Unknown error'}`); }
+                const result = await response.json();
+                const jsonText = result.choices?.[0]?.message?.content;
+                const parsedJson = jsonText ? JSON.parse(jsonText) : { objects: [] };
+                return parsedJson.objects || [];
+            } catch (err) {
+                 if (retryCount < 3) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    progressText.textContent += ` (API request failed, retrying in ${delay/1000}s...)`;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return callOpenAIForObjects(imageDataUrl, retryCount + 1, imageElement);
+                } else { throw new Error(`API request failed: ${err.message}`); }
+            }
+        }
+
+        // --- UI & Helper Functions ---
+        async function extractImagesFromPage(page) {
+            const images = [];
+            const ops = await page.getOperatorList();
+            for (let i = 0; i < ops.fnArray.length; i++) {
+                if (ops.fnArray[i] === pdfjsLib.OPS.paintImageXObject) {
+                    const imageName = ops.argsArray[i][0];
+                    try {
+                        const imgDataUrl = await new Promise((resolve) => {
+                            page.objs.get(imageName, (img) => {
+                                if (!img || !img.data) return resolve(null);
+                                try {
+                                    const canvas = document.createElement('canvas');
+                                    const ctx = canvas.getContext('2d');
+                                    canvas.width = img.width;
+                                    canvas.height = img.height;
+                                    const pixelData = new Uint8ClampedArray(img.data);
+                                    let imageData;
+                                    if (pixelData.length === img.width * img.height * 4) { // RGBA
+                                        imageData = new ImageData(pixelData, img.width, img.height);
+                                    } else if (pixelData.length === img.width * img.height * 3) { // RGB
+                                        const rgbaData = new Uint8ClampedArray(img.width * img.height * 4);
+                                        for (let j = 0, k = 0; j < pixelData.length; j += 3, k += 4) {
+                                            rgbaData[k] = pixelData[j]; rgbaData[k + 1] = pixelData[j + 1]; rgbaData[k + 2] = pixelData[j + 2]; rgbaData[k + 3] = 255;
+                                        }
+                                        imageData = new ImageData(rgbaData, img.width, img.height);
+                                    } else if (pixelData.length === img.width * img.height) { // Grayscale
+                                        const rgbaData = new Uint8ClampedArray(img.width * img.height * 4);
+                                        for (let j = 0, k = 0; j < pixelData.length; j++, k+=4) {
+                                            rgbaData[k] = pixelData[j]; rgbaData[k + 1] = pixelData[j]; rgbaData[k + 2] = pixelData[j]; rgbaData[k + 3] = 255;
+                                        }
+                                        imageData = new ImageData(rgbaData, img.width, img.height);
+                                    } else { 
+                                        console.warn(`Unsupported image format for ${imageName}. Data length: ${pixelData.length}`);
+                                        return resolve(null); 
+                                    }
+                                    ctx.putImageData(imageData, 0, 0);
+                                    resolve(canvas.toDataURL('image/png'));
+                                } catch (e) { 
+                                    console.error(`Error processing image ${imageName}:`, e);
+                                    resolve(null); 
+                                }
+                            });
+                        });
+                        if (imgDataUrl) images.push(imgDataUrl);
+                    } catch (e) { console.warn(`Failed during image operation for ${imageName}:`, e); }
+                }
+            }
+            return images;
+        }
+        
+        function updateSelectionToolbar(resultsContainer) {
+            let toolbar = resultsContainer.querySelector('.selection-toolbar');
+            const checkedBoxes = resultsContainer.querySelectorAll('.object-checkbox:checked');
+
+            if (checkedBoxes.length > 0) {
+                if (!toolbar) {
+                    toolbar = document.createElement('div');
+                    toolbar.className = 'selection-toolbar flex items-center justify-between';
+                    resultsContainer.prepend(toolbar); // Prepend to show it at the top
+                }
+                toolbar.innerHTML = `
+                    <span class="text-sm font-medium text-gray-700">${checkedBoxes.length} items selected</span>
+                    <div class="space-x-2">
+                        <button class="download-selected-btn bg-blue-500 text-white text-xs py-1 px-2 rounded hover:bg-blue-600">Download</button>
+                        <button class="delete-selected-btn bg-red-500 text-white text-xs py-1 px-2 rounded hover:bg-red-600">Delete</button>
+                    </div>
+                `;
+            } else {
+                if (toolbar) toolbar.remove();
+            }
+        }
+        
+        function handleDeleteSelected(resultsContainer) {
+            const checkedBoxes = resultsContainer.querySelectorAll('.object-checkbox:checked');
+            checkedBoxes.forEach(box => {
+                box.closest('.object-card').remove();
+            });
+            updateSelectionToolbar(resultsContainer);
+        }
+
+        async function handleDownloadSelected(resultsContainer) {
+            const checkedBoxes = resultsContainer.querySelectorAll('.object-checkbox:checked');
+            if(checkedBoxes.length === 0) return;
+
+            progressText.textContent = "Preparing ZIP file...";
+            loader.classList.remove('hidden');
+
+            try {
+                if (typeof JSZip === 'undefined' || typeof saveAs === 'undefined') {
+                    throw new Error("A required library for downloading failed to load.");
+                }
+                const zip = new JSZip();
+                let counter = 0;
+                checkedBoxes.forEach(box => {
+                    const card = box.closest('.object-card');
+                    const img = card.querySelector('img');
+                    const description = card.querySelector('p').textContent.replace(/[^a-z0-9]/gi, '_'); // Sanitize filename
+                    const base64Data = img.src.split(',')[1];
+                    zip.file(`${counter++}_${description}.png`, base64Data, { base64: true });
+                });
+
+                const content = await zip.generateAsync({ type: "blob" });
+                saveAs(content, "extracted_patterns.zip");
+
+            } catch(err) {
+                showInfo(`Download failed: ${err.message}`);
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+
+        function resetUI(keepFileInfo = false) {
+            infoBox.classList.add('hidden');
+            resultsDiv.classList.add('hidden');
+            outputContent.innerHTML = '';
+            deactivateSelectionMode();
+            if (!keepFileInfo) {
+                // PDF
+                pdfFileNameDisplay.textContent = 'No file chosen';
+                pageSelectionDiv.classList.add('hidden');
+                selectedPdfFile = null;
+                pdfDoc = null;
+                if (pdfFileInput) pdfFileInput.value = '';
+                // Image
+                imageFileNameDisplay.textContent = 'No file chosen, or paste an image directly';
+                imagePreviewContainer.classList.add('hidden');
+                imagePreview.src = '';
+                selectedImageDataUrl = null;
+                 if (imageFileInput) imageFileInput.value = '';
+            }
+        }
+
+        function showInfo(message, title = 'An error occurred!', isError = true) {
+            infoTitle.textContent = title;
+            infoMessage.textContent = message;
+            infoBox.className = 'px-4 py-3 rounded-lg relative my-6'; // Reset classes
+            if(isError) { infoBox.classList.add('bg-red-100', 'border-red-400', 'text-red-700');
+            } else { infoBox.classList.add('bg-blue-100', 'border-blue-400', 'text-blue-700'); }
+            infoBox.classList.remove('hidden');
+        }
+
+        // --- Download and Copy Functions ---
+        function downloadAsTxt() { const text = outputContent.innerText; const originalFilename = (currentMode === 'pdf' ? selectedPdfFile?.name : imageFileNameDisplay.textContent) || 'extraction'; const cleanFilename = originalFilename.split('.').slice(0, -1).join('.') || originalFilename; const blob = new Blob([text], { type: 'text/plain;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${cleanFilename}_extracted.txt`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href); }
+        downloadBtn.addEventListener('click', async () => {
+             downloadBtn.textContent = 'Preparing file...';
+             downloadBtn.disabled = true;
+             try {
+                if (typeof docx === 'undefined' || typeof saveAs === 'undefined') {
+                    throw new Error('A required library for creating the Word document failed to load.');
+                }
+                const { Document, Packer, Paragraph, TextRun } = docx;
+                const paragraphs = outputContent.innerText.split('\n').map(line => new Paragraph({ children: [new TextRun(line)] }));
+                const doc = new Document({ sections: [{ children: paragraphs }] });
+                
+                const originalFilename = (currentMode === 'pdf' ? selectedPdfFile?.name : imageFileNameDisplay.textContent) || 'extraction';
+                const cleanFilename = originalFilename.split('.').slice(0, -1).join('.') || originalFilename;
+
+                const blob = await Packer.toBlob(doc);
+                saveAs(blob, `${cleanFilename}_extracted.docx`);
+             } catch (err) {
+                 console.error(err);
+                 showInfo(`Could not create .docx file, downloading as .txt instead.`, 'Notice', false);
+                 downloadAsTxt();
+             } finally {
+                 downloadBtn.textContent = 'Download as .docx';
+                 downloadBtn.disabled = false;
+             }
+        });
+        copyBtn.addEventListener('click', () => { 
+            const textToCopy = outputContent.innerText; 
+            if (!textToCopy) return; 
+            const originalText = copyBtn.textContent; 
+            try { 
+                navigator.clipboard.writeText(textToCopy).then(() => { 
+                    copyBtn.textContent = 'Copied!'; 
+                    showInfo('Text copied to clipboard successfully.', 'Success', false); 
+                }).catch(err => { throw err; }); 
+            } catch (err) { 
+                console.error('Copy with Clipboard API failed, trying fallback:', err);
+                try { 
+                    const textArea = document.createElement("textarea"); 
+                    textArea.value = textToCopy; 
+                    document.body.appendChild(textArea); 
+                    textArea.focus(); 
+                    textArea.select(); 
+                    document.execCommand('copy'); 
+                    document.body.removeChild(textArea); 
+                    copyBtn.textContent = 'Copied!'; 
+                    showInfo('Text copied to clipboard successfully.', 'Success', false);
+                } catch (fallbackErr) { 
+                    console.error('Fallback copy failed:', fallbackErr);
+                    showInfo('Copy failed. Your browser might not support this feature.'); 
+                } 
+            } finally { 
+                setTimeout(() => { copyBtn.textContent = 'Copy All Text'; }, 2000); 
+            } 
+        });
+
+    </script>
+</body>
+</html>
+
